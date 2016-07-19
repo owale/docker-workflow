@@ -1,39 +1,126 @@
 nginx:
+    container_name: nginx
     build: ./nginx
     links:
         - node1:node1
         - node2:node2
-        - node3:node3
     ports:
         - "80:80"
+    volumes_from:
+        - logs
+
 node1:
+    container_name: node1
     build: ./node
     links:
         - redis
         - mongo
     ports:
-        - "8080"
+        - "8080:8080"
+    volumes_from:
+      - logs
+    environment:
+      - LOG_FILE=/var/log/node/node1.log
 node2:
+    container_name: node2
     build: ./node
     links:
         - redis
         - mongo
     ports:
-        - "8080"
-node3:
-    build: ./node
-    links:
-        - redis
-        - mongo
-    ports:
-        - "8080"
+        - "8081:8080"
+    volumes_from:
+      - logs
+    environment:
+      - LOG_FILE=/var/log/node/node2.log
+
 redis:
+    container_name: redis
     image: redis
     ports:
         - "6379"
+
+mongoData:
+  container_name: data-container-mongo
+  image: busybox:latest
+  volumes:
+    - ./data/mongo:/data/db
+  entrypoint: /bin/sh
 mongo:
+    container_name: mongo
     image: mongo
     ports:
         - "27017"
-    volumes:
-        - /data/db:/data/db
+    volumes_from:
+        - mongoData
+
+logs:
+  container_name: data-container-logs
+  image: busybox:latest
+  volumes:
+    - "./data/logs/:/var/log/:rw"
+    - "./data/logs/nginx/:/var/log/nginx/:rw"
+  entrypoint: /bin/sh
+
+cadvisor:
+  container_name: cAdvisor
+  build: ./cAdvisor
+  ports:
+    - "7788:8080"
+  expose:
+    - "8080"
+  volumes:
+    - "/:/rootfs:ro"
+    - "/var/run:/var/run:rw"
+    - "/sys:/sys:ro"
+    - "/var/lib/docker/:/var/lib/docker:ro"
+
+fluentd:
+  container_name: fluentd
+  build: ./fluentd
+  volumes_from:
+      - logs
+  links:
+    - elasticsearch
+  ports:
+    - "24231:24231"
+
+elasticsearchData:
+  container_name: data-container-elasticsearch
+  image: busybox:latest
+  volumes:
+    - ./data/:/usr/share/elasticsearch/data
+  entrypoint: /bin/sh
+elasticsearch:
+  container_name: elasticsearch
+  image: elasticsearch
+  ports:
+    - "9200:9200"
+    - "9300:9300"
+  volumes_from:
+    - elasticsearchData
+
+prometheusData:
+  container_name: data-container-prometheus
+  image: busybox:latest
+  volumes:
+    - "/data/prometheus:/prometheus-data:rw"
+  entrypoint: /bin/sh
+prometheus:
+  container_name: prometheus
+  build: ./prometheus
+  ports:
+    - "9090:9090"
+  links:
+    - cadvisor:cadvisor
+  volumes_from:
+    - prometheusData
+
+grafana:
+  container_name: grafana
+  build: ./grafana
+  links:
+    - elasticsearch:elasticsearch
+    - prometheus:prometheus
+  ports:
+    - "3000:3000"
